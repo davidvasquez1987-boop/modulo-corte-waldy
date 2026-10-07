@@ -5,36 +5,52 @@ from shapely.geometry import Polygon
 from shapely.affinity import translate
 import matplotlib.pyplot as plt
 
-# --- 1. LECTOR DE MOLDES DESDE PDF VECTORIAL ---
+# --- 1. LECTOR DE MOLDES MEJORADO PARA PDF EXTERNOS ---
 def extraer_poligonos_desde_pdf(archivo_pdf):
     poligonos = []
-    # Abrir el PDF desde el archivo cargado en memoria de Streamlit
     doc = fitz.open(stream=archivo_pdf.read(), filetype="pdf")
     
     for pagina in doc:
-        # Extraer las rutas vectoriales del PDF
-        lista_dibujos = pagina.get_drawings()
-        for dibujo in lista_dibujos:
+        paths = pagina.get_drawings()
+        for path in paths:
             puntos = []
-            for item in dibujo["items"]:
-                if item[0] == "l":  # Línea recta
+            for item in path.get("items", []):
+                if item[0] == "l": # Línea
                     puntos.append((item[1].x, item[1].y))
                     puntos.append((item[2].x, item[2].y))
+                elif item[0] == "c": # Curva Bézier (típica de patrones)
+                    puntos.append((item[1].x, item[1].y))
+                    puntos.append((item[3].x, item[3].y))
                 elif item[0] == "re": # Rectángulo
                     r = item[1]
                     puntos.extend([(r.x0, r.y0), (r.x1, r.y0), (r.x1, r.y1), (r.x0, r.y1)])
             
             if len(puntos) > 2:
-                # Limpiar puntos duplicados y crear polígono
-                puntos_unicos = list(dict.fromkeys(puntos))
+                puntos_unicos = []
+                for p in puntos:
+                    if p not in puntos_unicos:
+                        puntos_unicos.append(p)
+                
                 if len(puntos_unicos) > 2:
-                    poly = Polygon(puntos_unicos)
-                    if poly.is_valid and poly.area > 100: # Filtrar elementos muy pequeños
-                        poligonos.append(poly)
+                    try:
+                        poly = Polygon(puntos_unicos)
+                        if poly.is_valid and not poly.is_empty:
+                            poligonos.append(poly)
+                    except:
+                        continue
                         
+    # Respaldo si el PDF usa bloques de texto/figuras contenedoras
+    if not poligonos:
+        rects = pagina.get_text("blocks")
+        for r in rects:
+            x0, y0, x1, y1 = r[:4]
+            if (x1 - x0) > 20 and (y1 - y0) > 20:
+                poly = Polygon([(x0, y0), (x1, y0), (x1, y1), (x0, y1)])
+                poligonos.append(poly)
+                
     return poligonos
 
-# --- 2. GENERADOR MATEMÁTICO DINÁMICO (CATÁLOGO WLDY) ---
+# --- 2. GENERADOR MATEMÁTICO DINÁMICO (CATÁLOGO WALDY) ---
 def generar_moldes_dinamicos(tipo_prenda, talla, cantidad):
     doc = ezdxf.new('R2000')
     msp = doc.modelspace()
@@ -169,7 +185,6 @@ col1, col2 = st.columns([1, 2])
 with col1:
     st.header("📋 Origen del Molde")
     
-    # Opción para elegir entre catálogo o archivo PDF externo
     modo_fuente = st.radio("Seleccionar fuente de moldes:", ["Catálogo Estándar Waldy", "Subir Molde Externo (PDF)"])
     
     piezas_base = []
@@ -207,9 +222,8 @@ with col2:
             if archivo_pdf_subido is not None:
                 st.info("Leyendo vectores geométricos del PDF...")
                 piezas_individuales = extraer_poligonos_desde_pdf(archivo_pdf_subido)
-                # Multiplicar por la cantidad solicitada
                 piezas_base = piezas_individuales * cantidad_pdf
-                st.success(f"Se extrajeron y multiplicaron {len(piezas_base)} piezas del PDF.")
+                st.success(f"Se extrajeron y multiplicaron {len(piezas_base)} piezas del PDF con éxito.")
             else:
                 st.error("Por favor, sube un archivo PDF antes de calcular.")
                 st.stop()
