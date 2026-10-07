@@ -3,3 +3,5 @@ ezdxf
 shapely
 matplotlib
 PyMuPDF
+Pymupdf
+numpy
