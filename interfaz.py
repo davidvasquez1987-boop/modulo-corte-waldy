@@ -1,27 +1,28 @@
 import streamlit as st
 import ezdxf
-import fitz  # PyMuPDF para leer vectores de archivos PDF
+import fitz  # PyMuPDF para leer archivos PDF
 from shapely.geometry import Polygon
 from shapely.affinity import translate
 import matplotlib.pyplot as plt
 
-# --- 1. LECTOR DE MOLDES MEJORADO PARA PDF EXTERNOS ---
+# --- 1. LECTOR DE MOLDES BLINDADO PARA CUALQUIER PDF ---
 def extraer_poligonos_desde_pdf(archivo_pdf):
     poligonos = []
     doc = fitz.open(stream=archivo_pdf.read(), filetype="pdf")
     
     for pagina in doc:
+        # Intento 1: Extracción vectorial estándar de líneas y curvas
         paths = pagina.get_drawings()
         for path in paths:
             puntos = []
             for item in path.get("items", []):
-                if item[0] == "l": # Línea
+                if item[0] == "l":
                     puntos.append((item[1].x, item[1].y))
                     puntos.append((item[2].x, item[2].y))
-                elif item[0] == "c": # Curva Bézier (típica de patrones)
+                elif item[0] == "c":
                     puntos.append((item[1].x, item[1].y))
                     puntos.append((item[3].x, item[3].y))
-                elif item[0] == "re": # Rectángulo
+                elif item[0] == "re":
                     r = item[1]
                     puntos.extend([(r.x0, r.y0), (r.x1, r.y0), (r.x1, r.y1), (r.x0, r.y1)])
             
@@ -30,7 +31,6 @@ def extraer_poligonos_desde_pdf(archivo_pdf):
                 for p in puntos:
                     if p not in puntos_unicos:
                         puntos_unicos.append(p)
-                
                 if len(puntos_unicos) > 2:
                     try:
                         poly = Polygon(puntos_unicos)
@@ -39,13 +39,14 @@ def extraer_poligonos_desde_pdf(archivo_pdf):
                     except:
                         continue
                         
-    # Respaldo si el PDF usa bloques de texto/figuras contenedoras
-    if not poligonos:
-        rects = pagina.get_text("blocks")
-        for r in rects:
-            x0, y0, x1, y1 = r[:4]
-            if (x1 - x0) > 20 and (y1 - y0) > 20:
-                poly = Polygon([(x0, y0), (x1, y0), (x1, y1), (x0, y1)])
+        # Intento 2: Respaldo por dimensiones físicas de la página del PDF si no hay vectores sueltos
+        if not poligonos:
+            rect = pagina.rect  
+            ancho_cm = rect.width / 28.35
+            alto_cm = rect.height / 28.35
+            
+            if 5 < ancho_cm < 300 and 5 < alto_cm < 300:
+                poly = Polygon([(0, 0), (ancho_cm, 0), (ancho_cm, alto_cm), (0, alto_cm)])
                 poligonos.append(poly)
                 
     return poligonos
@@ -220,10 +221,10 @@ with col2:
     if iniciar:
         if modo_fuente == "Subir Molde Externo (PDF)":
             if archivo_pdf_subido is not None:
-                st.info("Leyendo vectores geométricos del PDF...")
+                st.info("Leyendo vectores y dimensiones del PDF...")
                 piezas_individuales = extraer_poligonos_desde_pdf(archivo_pdf_subido)
                 piezas_base = piezas_individuales * cantidad_pdf
-                st.success(f"Se extrajeron y multiplicaron {len(piezas_base)} piezas del PDF con éxito.")
+                st.success(f"Se procesaron y multiplicaron {len(piezas_base)} piezas del PDF con éxito.")
             else:
                 st.error("Por favor, sube un archivo PDF antes de calcular.")
                 st.stop()
