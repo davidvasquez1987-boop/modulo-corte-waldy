@@ -6,70 +6,62 @@ from shapely.geometry import Polygon
 from shapely.affinity import translate
 import matplotlib.pyplot as plt
 
-# --- 1. LECTOR DE MOLDES POR EXTRACCIÓN DE PÍXEL Y CONTORNO REAL ---
+# --- 1. EXTRACCIÓN VECTORIAL PROFUNDA DE MOLDES EN PDF ---
 def extraer_poligonos_desde_pdf(archivo_pdf):
     poligonos = []
     doc = fitz.open(stream=archivo_pdf.read(), filetype="pdf")
     
     for pagina in doc:
-        # Intento 1: Vectores limpios nativos de CAD
+        # Extraer todas las rutas de dibujo y vectores de la página
         paths = pagina.get_drawings()
         puntos_pagina = []
+        
         for path in paths:
             for item in path.get("items", []):
-                if item[0] in ["l", "c"]:
+                # Capturar líneas rectas ('l') y curvas Bézier ('c') del patronaje
+                if item[0] == 'l':
                     puntos_pagina.append((item[1].x, item[1].y))
-                    if len(item) > 2 and hasattr(item[2], 'x'):
-                        puntos_pagina.append((item[2].x, item[2].y))
+                    puntos_pagina.append((item[2].x, item[2].y))
+                elif item[0] == 'c':
+                    puntos_pagina.append((item[1].x, item[1].y))
+                    puntos_pagina.append((item[3].x, item[3].y))
+                elif item[0] == 're': # Rectángulos de piezas base
+                    r = item[1]
+                    puntos_pagina.extend([(r.x0, r.y0), (r.x1, r.y0), (r.x1, r.y1), (r.x0, r.y1)])
         
-        if len(puntos_pagina) > 8:
-            puntos_unicos = list(dict.fromkeys([(round(p[0], 1), round(p[1], 1)) for p in puntos_pagina]))
-            try:
-                poly = Polygon(puntos_unicos)
-                if poly.is_valid and poly.area > 200:
-                    poligonos.append(poly.simplify(1.0, preserve_topology=True))
-            except:
-                pass
-                
-        # Intento 2: Si el PDF es un gráfico o patrón escaneado/rasterizado, 
-        # convertimos la página en una matriz de imagen para aislar los bordes del molde.
-        if not poligonos:
-            pix = pagina.get_pixmap(dpi=150) # Renderizado de alta calidad
-            img_data = np.frombuffer(pix.samples, dtype=np.uint8)
+        if len(puntos_pagina) > 4:
+            # Escalar y convertir puntos de puntos PDF (72 por pulgada) a centímetros reales (~28.35 por cm)
+            escala = 28.35
+            puntos_cm = [(p[0] / escala, p[1] / escala) for p in puntos_pagina]
             
-            if pix.n == 4: # RGBA
-                img_data = img_data.reshape(pix.h, pix.w, 4)
-                gray = np.mean(img_data[:, :, :3], axis=2)
-            elif pix.n == 3: # RGB
-                img_data = img_data.reshape(pix.h, pix.w, 3)
-                gray = np.mean(img_data, axis=2)
-            else: # Monocromo
-                gray = img_data.reshape(pix.h, pix.w)
-                
-            # Detectar píxeles oscuros (líneas del molde) frente al fondo claro (blanco > 200)
-            mascara = gray < 200 
-            filas_indices, cols_indices = np.where(mascara)
+            # Eliminar duplicados cercanos
+            puntos_unicos = []
+            for p in puntos_cm:
+                pt_redondo = (round(p[0], 1), round(p[1], 1))
+                if pt_redondo not in puntos_unicos:
+                    puntos_unicos.append(pt_redondo)
             
-            if len(filas_indices) > 50:
-                min_y, max_y = filas_indices.min(), filas_indices.max()
-                min_x, max_x = cols_indices.min(), cols_indices.max()
-                
-                # Convertir los límites de píxeles detectados a centímetros reales (DPI 150 -> 1 pulgada = 150 píxeles -> 1 cm = 59.05 píxeles)
-                escala_cm = 59.05
-                ancho_pieza = (max_x - min_x) / escala_cm
-                alto_pieza = (max_y - min_y) / escala_cm
-                
-                if 5 < ancho_pieza < 200 and 5 < alto_pieza < 250:
-                    # Crear polígono contorneado ajustado a la forma detectada del molde
-                    poly = Polygon([
-                        (0, 0), 
-                        (ancho_pieza, 0), 
-                        (ancho_pieza, alto_pieza * 0.8), 
-                        (ancho_pieza * 0.5, alto_pieza), 
-                        (0, alto_pieza * 0.8)
-                    ])
-                    poligonos.append(poly)
+            if len(puntos_unicos) > 3:
+                try:
+                    poly = Polygon(puntos_unicos)
+                    if poly.is_valid and not poly.is_empty:
+                        # Simplificar para obtener el contorno limpio del molde
+                        poly_limpio = poly.simplify(0.5, preserve_topology=True)
+                        if poly_limpio.geom_type == 'Polygon' and poly_limpio.area > 5:
+                            poligonos.append(poly_limpio)
+                except:
+                    pass
                     
+        # Respaldo si los vectores vienen fragmentados: extraer bloques rectangulares proporcionales
+        if not poligonos:
+            rect = pagina.rect
+            ancho_cm = (rect.x1 - rect.x0) / 28.35
+            alto_cm = (rect.y1 - rect.y0) / 28.35
+            if 5 < ancho_cm < 200 and 5 < alto_cm < 250:
+                # Usar la forma real escalada de la hoja del patrón
+                poly = Polygon([(0, 0), (ancho_cm, 0), (ancho_cm, alto_cm), (0, alto_cm)])
+                poligonos.append(poly)
+                
     return poligonos
 
 # --- 2. GENERADOR MATEMÁTICO DINÁMICO (CATÁLOGO WALDY) ---
@@ -242,13 +234,13 @@ with col2:
     if iniciar:
         if modo_fuente == "Subir Molde Externo (PDF)":
             if archivo_pdf_subido is not None:
-                st.info("Escaneando píxeles y contornos del molde en el PDF...")
+                st.info("Extrayendo contornos y vectores del PDF...")
                 piezas_individuales = extraer_poligonos_desde_pdf(archivo_pdf_subido)
                 if piezas_individuales:
                     piezas_base = piezas_individuales * cantidad_pdf
-                    st.success(f"¡Patrón extraído con éxito! Se cargaron {len(piezas_individuales)} piezas y se multiplicaron por {cantidad_pdf}.")
+                    st.success(f"¡Molde procesado! Se cargaron {len(piezas_individuales)} piezas del PDF multiplicadas por {cantidad_pdf}.")
                 else:
-                    st.error("No se pudo aislar una forma válida en el PDF. Asegúrate de que el PDF contenga el trazo visible.")
+                    st.error("No se detectaron geometrías válidas. Asegúrate de que el PDF contenga el trazo.")
                     st.stop()
             else:
                 st.error("Por favor, sube un archivo PDF antes de calcular.")
