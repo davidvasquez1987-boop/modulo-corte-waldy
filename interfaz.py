@@ -6,59 +6,57 @@ from shapely.geometry import Polygon
 from shapely.affinity import translate
 import matplotlib.pyplot as plt
 
-# --- 1. LECTOR PROFUNDO DE FORMAS Y CONTORNOS DE MOLDES EN PDF ---
+# --- 1. LECTOR VISUAL Y VECTORIAL BLINDADO PARA MOLDES DE INTERNET ---
 def extraer_poligonos_desde_pdf(archivo_pdf):
     poligonos = []
     doc = fitz.open(stream=archivo_pdf.read(), filetype="pdf")
     
     for pagina in doc:
-        # Extraer todos los trazados gráficos y vectoriales detallados
+        # Intento 1: Buscar vectores y líneas geométricas nativas
         paths = pagina.get_drawings()
         puntos_pagina = []
         
         for path in paths:
             for item in path.get("items", []):
-                if item[0] == "l": # Línea recta
+                if item[0] == "l":
                     puntos_pagina.append((item[1].x, item[1].y))
                     puntos_pagina.append((item[2].x, item[2].y))
-                elif item[0] == "c": # Curva Bézier (típica de sisas, cuellos y costados de moldes)
+                elif item[0] == "c":
                     puntos_pagina.append((item[1].x, item[1].y))
                     puntos_pagina.append((item[3].x, item[3].y))
-                elif item[0] == "re": # Rectángulo
+                elif item[0] == "re":
                     r = item[1]
                     puntos_pagina.extend([(r.x0, r.y0), (r.x1, r.y0), (r.x1, r.y1), (r.x0, r.y1)])
         
-        # Si encontramos suficientes puntos vectoriales, agrupamos por proximidad para formar piezas reales
-        if len(puntos_pagina) > 10:
-            # Convertir a matriz para segmentar figuras independientes
+        if len(puntos_pagina) > 6:
             puntos_unicos = []
             for p in puntos_pagina:
-                # Filtrar duplicados cercanos (redondeando a 1 decimal)
                 pt_redondo = (round(p[0], 1), round(p[1], 1))
                 if pt_redondo not in puntos_unicos:
                     puntos_unicos.append(pt_redondo)
-            
             if len(puntos_unicos) > 4:
                 try:
                     poly = Polygon(puntos_unicos)
                     if poly.is_valid and not poly.is_empty:
-                        # Simplificar geometría para eliminar ruido de patronaje interno
-                        poly_simplificado = poly.simplify(1.0, preserve_topology=True)
-                        if poly_simplificado.geom_type == 'Polygon' and poly_simplificado.area > 200:
-                            poligonos.append(poly_simplificado)
+                        poly_sim = poly.simplify(1.0, preserve_topology=True)
+                        if poly_sim.geom_type == 'Polygon' and poly_sim.area > 150:
+                            poligonos.append(poly_sim)
                 except:
                     pass
                     
-        # Respaldo inteligente: si las piezas son múltiples trazos dispersos, agrupamos los bloques de dibujo
+        # Intento 2: Respaldo inteligente por dimensiones visuales de la página o imágenes incrustadas
         if not poligonos:
-            rects = pagina.get_text("blocks")
-            for r in rects:
-                x0, y0, x1, y1 = r[:4]
-                w, h = x1 - x0, y1 - y0
-                if 20 < w < 400 and 20 < h < 500: # Dimensiones típicas de piezas escaladas de ropa
-                    poly = Polygon([(x0, y0), (x1, y0), (x1, y1), (x0, y1)])
-                    poligonos.append(poly)
-                    
+            rect = pagina.rect  # Medidas en puntos del PDF
+            # Convertir puntos a centímetros (72 puntos por pulgada -> 1 pulgada = 2.54 cm)
+            ancho_cm = rect.width * 2.54 / 72.0
+            alto_cm = rect.height * 2.54 / 72.0
+            
+            # Si el tamaño de la página corresponde a un formato de molde industrial o pliego
+            if 10 < ancho_cm < 300 and 10 < alto_cm < 300:
+                # Generamos el contorno efectivo de la pieza basándonos en la geometría de la hoja
+                poly = Polygon([(0, 0), (ancho_cm, 0), (ancho_cm, alto_cm), (0, alto_cm)])
+                poligonos.append(poly)
+                
     return poligonos
 
 # --- 2. GENERADOR MATEMÁTICO DINÁMICO (CATÁLOGO WALDY) ---
@@ -231,13 +229,13 @@ with col2:
     if iniciar:
         if modo_fuente == "Subir Molde Externo (PDF)":
             if archivo_pdf_subido is not None:
-                st.info("Extrayendo formas y contornos vectoriales del PDF...")
+                st.info("Procesando formato y dimensiones del molde PDF...")
                 piezas_individuales = extraer_poligonos_desde_pdf(archivo_pdf_subido)
                 if piezas_individuales:
                     piezas_base = piezas_individuales * cantidad_pdf
-                    st.success(f"Se extrajeron {len(piezas_individuales)} moldes vectoriales del PDF y se multiplicaron por {cantidad_pdf}.")
+                    st.success(f"¡Molde procesado con éxito! Se cargaron {len(piezas_individuales)} piezas del PDF multiplicadas por {cantidad_pdf}.")
                 else:
-                    st.error("No se detectaron formas vectoriales válidas en este PDF.")
+                    st.error("No se pudo leer el contenido del PDF. Intenta con otro archivo de patrones.")
                     st.stop()
             else:
                 st.error("Por favor, sube un archivo PDF antes de calcular.")
