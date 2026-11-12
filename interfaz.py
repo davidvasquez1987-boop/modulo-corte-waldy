@@ -512,9 +512,9 @@ def dibujar_plano(ubicadas, ancho_util, area_neta):
             )
         if ap > 13:
             tag = "HILO" if sent == "Al Hilo (0°)" else "TRAV"
+            lbl = f"{cat[:4].upper()} ({tag})\n{ap:.0f}x{lp:.0f}"
             ax.text(
-                cx + 1.5, cy, f"{cat[:4].upper()} ({tag})
-{ap:.0f}x{lp:.0f}",
+                cx + 1.5, cy, lbl,
                 fontsize=6.2, fontweight='bold', color='white',
                 va='center', zorder=5
             )
@@ -527,13 +527,12 @@ def dibujar_plano(ubicadas, ancho_util, area_neta):
         bbox_to_anchor=(0.5, -0.05), ncol=3, fontsize=9
     )
     efic = (area_neta / (ancho_util * largo) * 100) if largo > 0 else 0
-    ax.set_title(
-        f"PLANO DE CORTE - WALDY UNIFORMES
-"
+    tit = (
+        f"PLANO DE CORTE - WALDY UNIFORMES\n"
         f"Ancho: {ancho_util:.1f} cm | Largo: {largo/100:.2f} m | "
-        f"Aprovechamiento: {efic:.1f}%",
-        fontsize=11, fontweight='bold', color=OSCURO
+        f"Aprovechamiento: {efic:.1f}%"
     )
+    ax.set_title(tit, fontsize=11, fontweight='bold', color=OSCURO)
     ax.set_xlabel("Ancho Tela - Trama (cm)")
     ax.set_ylabel("Largo de Tendido - Urdimbre (cm)")
     ax.set_xlim(-6, ancho_util + 5)
@@ -619,9 +618,7 @@ with col1:
                 pzs = ', '.join(it['piezas'])
                 txt = (
                     f"**{it['cn']}x {nom_p} ({it['ta']})** "
-                    f"[{it['sentido']}]
-
-*Piezas:* {pzs}"
+                    f"[{it['sentido']}]\n\n*Piezas:* {pzs}"
                 )
             else:
                 txt = f"**{it['cn']}x PDF: {it['nom']}** [{it['sentido']}]"
@@ -653,12 +650,8 @@ with col2:
         c_img.pyplot(fig_p, use_container_width=True)
         with c_esp:
             st.markdown(f"### {pr.split(' - ')[1]}")
-            st.success(f"**Acabados de Confección:**
-
-{notas_conf}")
-            st.info("**Piezas del molde:**
-
-" + ", ".join(lista_pz))
+            st.success(f"**Acabados de Confección:**\n\n{notas_conf}")
+            st.info("**Piezas del molde:**\n\n" + ", ".join(lista_pz))
             if st.button("❌ Cerrar vista previa"):
                 st.session_state.ver_prenda = False
                 st.rerun()
