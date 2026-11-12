@@ -3,7 +3,7 @@ import ezdxf
 import fitz
 import numpy as np
 from shapely.geometry import Polygon
-from shapely.affinity import translate
+from shapely.affinity import translate, rotate
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from PIL import Image
@@ -20,7 +20,7 @@ COLORES = {
     "Delantero": {"fill": "#138A36", "edge": "#064E3B"},
     "Manga": {"fill": "#F59E0B", "edge": "#92400E"},
     "Cuello / Pretina": {"fill": "#0284C7", "edge": "#075985"},
-    "Bolsillo / Detalle": {"fill": "#64748B", "edge": "#1E293B"},
+    "Bolsillo / Puño": {"fill": "#64748B", "edge": "#1E293B"},
     "Molde PDF": {"fill": "#138A36", "edge": "#E9531E"}
 }
 
@@ -100,7 +100,7 @@ def encabezado():
         )
         st.markdown(
             f"<p style='color:{VERDE};font-weight:700;margin:0;'>"
-            "Línea Escolar y Empresarial • Tendido Estrictamente al Hilo</p>",
+            "Control por Pieza • Corte Al Hilo o Al Través por Prenda</p>",
             unsafe_allow_html=True
         )
     with c3:
@@ -124,105 +124,176 @@ CATALOGO = {
     "🏢 Empresarial - Overol Enterizo": (55, 145, "overol"),
 }
 
+PIEZAS_POR_TIPO = {
+    "sup_larga": ["Espalda", "Delanteros (x2)", "Mangas (x2)",
+                  "Cuello", "Puños (x2)", "Bolsillo"],
+    "sup_corta": ["Espalda", "Delanteros (x2)", "Mangas (x2)",
+                  "Cuello", "Bolsillo"],
+    "chaqueta": ["Espalda", "Delanteros (x2)", "Mangas (x2)",
+                 "Cuello", "Puños (x2)", "Bolsillos (x2)"],
+    "chaleco": ["Espalda", "Delanteros (x2)", "Cuello", "Bolsillos (x2)"],
+    "pantalon": ["Piernas Delanteras (x2)", "Piernas Traseras (x2)",
+                 "Pretina", "Bolsillos (x2)"],
+    "falda": ["Paño Delantero", "Paño Trasero", "Pretina", "Bolsillo"],
+    "overol": ["Cuerpo Delantero (x2)", "Cuerpo Trasero (x2)",
+               "Mangas (x2)", "Cuello", "Bolsillos (x2)"]
+}
+
 TALLAS = {
     "6": 0.72, "8": 0.78, "10": 0.84, "12": 0.89,
     "14": 0.94, "16": 0.97, "S": 1.00, "M": 1.06,
     "L": 1.12, "XL": 1.18, "XXL": 1.25
 }
 
-def crear_piezas(prenda, talla, cant):
+def aplicar_sentido(poly, sentido):
+    if sentido == "Al Través (90°)":
+        rot = rotate(poly, 90, origin=(0, 0))
+        minx, miny, _, _ = rot.bounds
+        return translate(rot, xoff=-minx, yoff=-miny)
+    return poly
+
+def crear_piezas(prenda, talla, cant, piezas_sel, sentido):
     bw, bh, tipo = CATALOGO[prenda]
     f = TALLAS[talla]
     w, h = bw * f, bh * f
     res = []
 
     for _ in range(cant):
-        if tipo in ["sup_larga", "sup_corta", "chaqueta"]:
+        if "Espalda" in piezas_sel:
             esp = Polygon([
                 (0, 0), (w, 0), (w, h * 0.65), (w * 0.82, h * 0.95),
                 (w * 0.65, h), (w * 0.35, h), (w * 0.18, h * 0.95),
                 (0, h * 0.65)
             ])
-            res.append({"poly": esp, "cat": "Espalda"})
+            res.append({
+                "poly": aplicar_sentido(esp, sentido),
+                "cat": "Espalda", "sentido": sentido
+            })
 
+        if "Delanteros (x2)" in piezas_sel:
             for _ in range(2):
                 d = Polygon([
                     (0, 0), (w * 0.52, 0), (w * 0.52, h * 0.86),
                     (w * 0.35, h * 0.98), (0, h * 0.65)
                 ])
-                res.append({"poly": d, "cat": "Delantero"})
+                res.append({
+                    "poly": aplicar_sentido(d, sentido),
+                    "cat": "Delantero", "sentido": sentido
+                })
 
+        if "Mangas (x2)" in piezas_sel:
             lm = h * 0.85 if tipo != "sup_corta" else h * 0.38
+            if tipo == "overol":
+                lm = h * 0.34
             am = w * 0.44
             for _ in range(2):
                 m = Polygon([
                     (am * 0.15, 0), (am * 0.85, 0), (am, lm * 0.75),
                     (am * 0.5, lm), (0, lm * 0.75)
                 ])
-                res.append({"poly": m, "cat": "Manga"})
+                res.append({
+                    "poly": aplicar_sentido(m, sentido),
+                    "cat": "Manga", "sentido": sentido
+                })
 
+        if "Cuello" in piezas_sel:
             c = Polygon([(0, 0), (7.5, 0), (7.5, w * 0.76), (0, w * 0.76)])
-            res.append({"poly": c, "cat": "Cuello / Pretina"})
+            res.append({
+                "poly": aplicar_sentido(c, sentido),
+                "cat": "Cuello / Pretina", "sentido": sentido
+            })
 
-        elif tipo == "chaleco":
-            esp = Polygon([
-                (0, 0), (w, 0), (w, h * 0.62), (w * 0.8, h * 0.96),
-                (w * 0.2, h * 0.96), (0, h * 0.62)
-            ])
-            res.append({"poly": esp, "cat": "Espalda"})
+        if "Puños (x2)" in piezas_sel:
             for _ in range(2):
-                d = Polygon([
-                    (0, 0), (w * 0.5, 0), (w * 0.5, h * 0.65),
-                    (w * 0.25, h * 0.96), (0, h * 0.62)
-                ])
-                res.append({"poly": d, "cat": "Delantero"})
-            b = Polygon([(0, 0), (16, 0), (16, 18), (0, 18)])
-            res.append({"poly": b, "cat": "Bolsillo / Detalle"})
+                pu = Polygon([(0, 0), (7.0, 0), (7.0, 23.0), (0, 23.0)])
+                res.append({
+                    "poly": aplicar_sentido(pu, sentido),
+                    "cat": "Bolsillo / Puño", "sentido": sentido
+                })
 
-        elif tipo == "pantalon":
+        if "Bolsillo" in piezas_sel:
+            bo = Polygon([(0, 0), (13.0, 0), (13.0, 15.0), (0, 15.0)])
+            res.append({
+                "poly": aplicar_sentido(bo, sentido),
+                "cat": "Bolsillo / Puño", "sentido": sentido
+            })
+
+        if "Bolsillos (x2)" in piezas_sel:
+            for _ in range(2):
+                bo = Polygon([(0, 0), (15.0, 0), (15.0, 17.0), (0, 17.0)])
+                res.append({
+                    "poly": aplicar_sentido(bo, sentido),
+                    "cat": "Bolsillo / Puño", "sentido": sentido
+                })
+
+        if "Piernas Delanteras (x2)" in piezas_sel:
             for _ in range(2):
                 dp = Polygon([
                     (w * 0.15, 0), (w * 0.65, 0), (w * 0.85, h * 0.72),
                     (w, h * 0.76), (w * 0.92, h), (w * 0.1, h)
                 ])
+                res.append({
+                    "poly": aplicar_sentido(dp, sentido),
+                    "cat": "Delantero", "sentido": sentido
+                })
+
+        if "Piernas Traseras (x2)" in piezas_sel:
+            for _ in range(2):
                 tp = Polygon([
                     (w * 0.12, 0), (w * 0.72, 0), (w * 0.95, h * 0.70),
                     (w * 1.12, h * 0.75), (w * 0.98, h * 1.03), (w * 0.08, h)
                 ])
-                res.append({"poly": dp, "cat": "Delantero"})
-                res.append({"poly": tp, "cat": "Espalda"})
+                res.append({
+                    "poly": aplicar_sentido(tp, sentido),
+                    "cat": "Espalda", "sentido": sentido
+                })
+
+        if "Pretina" in piezas_sel:
             pr = Polygon([(0, 0), (9.0, 0), (9.0, w * 2.0), (0, w * 2.0)])
-            res.append({"poly": pr, "cat": "Cuello / Pretina"})
+            res.append({
+                "poly": aplicar_sentido(pr, sentido),
+                "cat": "Cuello / Pretina", "sentido": sentido
+            })
 
-        elif tipo == "falda":
-            for cat in ["Delantero", "Espalda"]:
-                pa = Polygon([
-                    (0, 0), (w * 1.35, 0), (w * 1.15, h), (w * 0.2, h)
-                ])
-                res.append({"poly": pa, "cat": cat})
-            pr = Polygon([(0, 0), (8.5, 0), (8.5, w * 1.85), (0, w * 1.85)])
-            res.append({"poly": pr, "cat": "Cuello / Pretina"})
+        if "Paño Delantero" in piezas_sel:
+            pa = Polygon([(0, 0), (w * 1.35, 0), (w * 1.15, h), (w * 0.2, h)])
+            res.append({
+                "poly": aplicar_sentido(pa, sentido),
+                "cat": "Delantero", "sentido": sentido
+            })
 
-        elif tipo == "overol":
+        if "Paño Trasero" in piezas_sel:
+            pa = Polygon([(0, 0), (w * 1.35, 0), (w * 1.15, h), (w * 0.2, h)])
+            res.append({
+                "poly": aplicar_sentido(pa, sentido),
+                "cat": "Espalda", "sentido": sentido
+            })
+
+        if "Cuerpo Delantero (x2)" in piezas_sel:
             for _ in range(2):
                 cd = Polygon([
                     (w * 0.1, 0), (w * 0.55, 0), (w * 0.65, h * 0.48),
                     (w * 0.65, h * 0.90), (w * 0.4, h), (0, h * 0.75)
                 ])
+                res.append({
+                    "poly": aplicar_sentido(cd, sentido),
+                    "cat": "Delantero", "sentido": sentido
+                })
+
+        if "Cuerpo Trasero (x2)" in piezas_sel:
+            for _ in range(2):
                 ct = Polygon([
                     (w * 0.1, 0), (w * 0.60, 0), (w * 0.72, h * 0.48),
                     (w * 0.68, h * 0.96), (w * 0.35, h), (0, h * 0.78)
                 ])
-                mg = Polygon([
-                    (w * 0.08, 0), (w * 0.42, 0), (w * 0.48, h * 0.32),
-                    (w * 0.24, h * 0.42), (0, h * 0.32)
-                ])
-                res.append({"poly": cd, "cat": "Delantero"})
-                res.append({"poly": ct, "cat": "Espalda"})
-                res.append({"poly": mg, "cat": "Manga"})
+                res.append({
+                    "poly": aplicar_sentido(ct, sentido),
+                    "cat": "Espalda", "sentido": sentido
+                })
+
     return res
 
-def leer_pdf(archivo):
+def leer_pdf(archivo, sentido):
     res = []
     doc = fitz.open(stream=archivo.read(), filetype="pdf")
     for pag in doc:
@@ -246,12 +317,15 @@ def leer_pdf(archivo):
                 try:
                     poly = Polygon(unicos).simplify(0.4, preserve_topology=True)
                     if poly.is_valid and not poly.is_empty and poly.area > 5:
-                        res.append({"poly": poly, "cat": "Molde PDF"})
+                        res.append({
+                            "poly": aplicar_sentido(poly, sentido),
+                            "cat": "Molde PDF", "sentido": sentido
+                        })
                 except Exception:
                     pass
     return res
 
-def anidar_al_hilo(piezas, ancho_util, margen, paso):
+def anidar_piezas(piezas, ancho_util, margen, paso):
     proc = []
     area_neta = 0.0
     descartadas = 0
@@ -262,7 +336,10 @@ def anidar_al_hilo(piezas, ancho_util, margen, paso):
             descartadas += 1
             continue
         area_neta += pm.area
-        proc.append({"poly": pm, "cat": it["cat"], "area": pm.area})
+        proc.append({
+            "poly": pm, "cat": it["cat"],
+            "sentido": it["sentido"], "area": pm.area
+        })
 
     proc.sort(key=lambda x: x["area"], reverse=True)
     ubicadas = []
@@ -281,7 +358,10 @@ def anidar_al_hilo(piezas, ancho_util, margen, paso):
             while x + ap <= ancho_util:
                 cand = translate(pn, xoff=x, yoff=y)
                 if not any(cand.intersects(u["poly"]) for u in ubicadas):
-                    ubicadas.append({"poly": cand, "cat": it["cat"]})
+                    ubicadas.append({
+                        "poly": cand, "cat": it["cat"],
+                        "sentido": it["sentido"]
+                    })
                     ok = True
                     break
                 x += paso
@@ -304,7 +384,7 @@ def dibujar_plano(ubicadas, ancho_util, area_neta):
         arrowprops=dict(arrowstyle="<->", color=NARANJA, lw=2)
     )
     ax.text(
-        -3.8, largo / 2, "SENTIDO DEL HILO DE LA TELA (URDIMBRE)",
+        -3.8, largo / 2, "HILO DE LA TELA (URDIMBRE 0°)",
         rotation=90, va='center', ha='center', fontsize=8,
         fontweight='bold', color=NARANJA
     )
@@ -314,6 +394,7 @@ def dibujar_plano(ubicadas, ancho_util, area_neta):
     for it in ubicadas:
         poly = it["poly"]
         cat = it["cat"]
+        sent = it["sentido"]
         cats.add(cat)
         est = COLORES.get(cat, COLORES["Bolsillo / Detalle"])
         x, y = poly.exterior.xy
@@ -323,17 +404,28 @@ def dibujar_plano(ubicadas, ancho_util, area_neta):
         cx, cy = poly.centroid.x, poly.centroid.y
         minx, miny, maxx, maxy = poly.bounds
         ap, lp = maxx - minx, maxy - miny
-        if ap > 7 and lp > 12:
-            fl = min(lp * 0.25, 10)
+
+        # Flecha vertical si es Al Hilo, horizontal si es Al Través
+        if sent == "Al Hilo (0°)" and lp > 10:
+            fl = min(lp * 0.25, 9)
             ax.annotate(
                 '', xy=(cx, cy + fl), xytext=(cx, cy - fl),
-                arrowprops=dict(arrowstyle="<->", color='white', lw=0.9),
+                arrowprops=dict(arrowstyle="<->", color='white', lw=1.0),
                 zorder=4
             )
+        elif sent == "Al Través (90°)" and ap > 10:
+            fl = min(ap * 0.25, 9)
+            ax.annotate(
+                '', xy=(cx + fl, cy), xytext=(cx - fl, cy),
+                arrowprops=dict(arrowstyle="<->", color='#FEF08A', lw=1.1),
+                zorder=4
+            )
+
         if ap > 13:
+            tag = "HILO" if sent == "Al Hilo (0°)" else "TRAV"
             ax.text(
-                cx + 1.5, cy, f"{cat[:4].upper()}\n{ap:.0f}x{lp:.0f}",
-                fontsize=6.5, fontweight='bold', color='white',
+                cx + 1.5, cy, f"{cat[:4].upper()} ({tag})\n{ap:.0f}x{lp:.0f}",
+                fontsize=6.2, fontweight='bold', color='white',
                 ha='left', va='center', zorder=5
             )
 
@@ -346,13 +438,13 @@ def dibujar_plano(ubicadas, ancho_util, area_neta):
 
     efic = (area_neta / (ancho_util * largo) * 100) if largo > 0 else 0
     ax.set_title(
-        f"PLANO DE CORTE AL HILO - WALDY UNIFORMES\n"
+        f"PLANO DE CORTE INDUSTRIAL - WALDY UNIFORMES\n"
         f"Ancho: {ancho_util:.1f} cm | Largo: {largo/100:.2f} m | "
         f"Aprovechamiento: {efic:.1f}%",
         fontsize=11, fontweight='bold', color=OSCURO
     )
-    ax.set_xlabel("Ancho Tela (cm)")
-    ax.set_ylabel("Largo al Hilo (cm)")
+    ax.set_xlabel("Ancho Tela - Trama (cm)")
+    ax.set_ylabel("Largo de Tendido - Urdimbre (cm)")
     ax.set_xlim(-6, ancho_util + 5)
     ax.set_ylim(-5, largo + 8)
     ax.set_aspect('equal')
@@ -379,49 +471,84 @@ def a_dxf(ubicadas, ancho, largo):
 
 encabezado()
 rc = st.session_state.rc
-col1, col2 = st.columns([1.15, 2.1], gap="large")
+col1, col2 = st.columns([1.2, 2.05], gap="large")
 
 with col1:
-    st.subheader("1. Orden de Corte")
+    st.subheader("1. Configurar Prendas y Piezas")
     t1, t2 = st.tabs(["👕 Catálogo Waldy", "📄 Molde PDF"])
 
     with t1:
         pr = st.selectbox("Prenda:", list(CATALOGO.keys()), key=f"p_{rc}")
         ca, cb = st.columns(2)
         ta = ca.selectbox("Talla:", list(TALLAS.keys()), index=6, key=f"t_{rc}")
-        cn = cb.number_input("Cantidad:", 1, 200, 4, key=f"c_{rc}")
-        if st.button("➕ Agregar Prenda", use_container_width=True):
-            st.session_state.orden_corte.append(
-                {"tipo": "cat", "pr": pr, "ta": ta, "cn": cn}
-            )
+        cn = cb.number_input("Cantidad:", 1, 200, 2, key=f"c_{rc}")
+
+        sentido_pr = st.radio(
+            "Dirección de corte para esta prenda:",
+            ["Al Hilo (0°)", "Al Través (90°)"],
+            horizontal=True,
+            key=f"sent_{rc}"
+        )
+
+        tipo_act = CATALOGO[pr][2]
+        lista_pz = PIEZAS_POR_TIPO[tipo_act]
+        st.markdown("**Selecciona las piezas a cortar:**")
+        cols_pz = st.columns(2)
+        pz_elegidas = []
+        for idx_p, nom_pz in enumerate(lista_pz):
+            with cols_pz[idx_p % 2]:
+                if st.checkbox(nom_pz, value=True, key=f"chk_{rc}_{tipo_act}_{idx_p}"):
+                    pz_elegidas.append(nom_pz)
+
+        if st.button("➕ Agregar Selección a la Orden", use_container_width=True):
+            if not pz_elegidas:
+                st.warning("Marca al menos una pieza para agregar.")
+            else:
+                st.session_state.orden_corte.append({
+                    "tipo": "cat", "pr": pr, "ta": ta, "cn": cn,
+                    "piezas": pz_elegidas, "sentido": sentido_pr
+                })
+                st.toast(f"Agregado ({sentido_pr})", icon="✅")
 
     with t2:
         pdf_up = st.file_uploader("Subir PDF:", type=["pdf"], key=f"f_{rc}")
         cn_pdf = st.number_input("Copias PDF:", 1, 100, 1, key=f"cp_{rc}")
-        if st.button("➕ Agregar PDF", use_container_width=True) and pdf_up:
-            st.session_state.orden_corte.append(
-                {"tipo": "pdf", "arch": pdf_up, "nom": pdf_up.name, "cn": cn_pdf}
-            )
+        sentido_pdf = st.radio(
+            "Dirección del molde PDF:",
+            ["Al Hilo (0°)", "Al Través (90°)"],
+            horizontal=True,
+            key=f"sent_pdf_{rc}"
+        )
+        if st.button("➕ Agregar PDF a la Orden", use_container_width=True) and pdf_up:
+            st.session_state.orden_corte.append({
+                "tipo": "pdf", "arch": pdf_up, "nom": pdf_up.name,
+                "cn": cn_pdf, "sentido": sentido_pdf
+            })
 
     if st.session_state.orden_corte:
-        st.markdown("**Lote en Mesa:**")
+        st.markdown("---")
+        st.markdown("**📋 Lote Acumulado en Mesa:**")
         for i, it in enumerate(st.session_state.orden_corte):
-            txt = (
-                f"{it['cn']}x {it['pr'].split(' - ')[1]} ({it['ta']})"
-                if it["tipo"] == "cat" else f"{it['cn']}x PDF: {it['nom']}"
-            )
-            x1, x2 = st.columns([4, 1])
-            x1.write(txt)
+            if it["tipo"] == "cat":
+                resumen_pz = ", ".join(it["piezas"])
+                txt = (
+                    f"**{it['cn']}x {it['pr'].split(' - ')[1]} ({it['ta']})** "
+                    f"[{it['sentido']}]\n\n*Piezas:* {resumen_pz}"
+                )
+            else:
+                txt = f"**{it['cn']}x PDF: {it['nom']}** [{it['sentido']}]"
+            x1, x2 = st.columns([4.5, 1])
+            x1.markdown(txt)
             if x2.button("🗑️", key=f"d_{rc}_{i}"):
                 st.session_state.orden_corte.pop(i)
                 st.rerun()
 
+    st.markdown("---")
     st.subheader("2. Parámetros de Tela")
     ancho_t = st.number_input("Ancho útil (cm):", 60.0, 300.0, 150.0, key=f"a_{rc}")
     cm1, cm2 = st.columns(2)
     margen_t = cm1.number_input("Margen (cm):", 0.0, 3.0, 0.8, key=f"m_{rc}")
     paso_t = cm2.selectbox("Precisión:", [1.0, 2.0, 3.0], index=1, key=f"s_{rc}")
-    st.info("🧵 Corte 100 % al hilo de la tela (0°).")
     calc = st.button("🚀 GENERAR PLANO DE CORTE", use_container_width=True)
 
 with col2:
@@ -433,23 +560,31 @@ with col2:
             piezas = []
             for it in st.session_state.orden_corte:
                 if it["tipo"] == "cat":
-                    piezas.extend(crear_piezas(it["pr"], it["ta"], it["cn"]))
+                    piezas.extend(crear_piezas(
+                        it["pr"], it["ta"], it["cn"],
+                        it["piezas"], it["sentido"]
+                    ))
                 else:
                     it["arch"].seek(0)
-                    piezas.extend(leer_pdf(it["arch"]) * it["cn"])
+                    piezas.extend(
+                        leer_pdf(it["arch"], it["sentido"]) * it["cn"]
+                    )
 
-            ubicadas, area_n, desc = anidar_al_hilo(
+            ubicadas, area_n, desc = anidar_piezas(
                 piezas, ancho_t, margen_t, paso_t
             )
             if desc > 0:
-                st.error(f"{desc} pieza(s) superan el ancho de {ancho_t} cm.")
+                st.error(
+                    f"⚠️ {desc} pieza(s) superan el ancho de {ancho_t} cm "
+                    "en la dirección elegida y no caben en el rollo."
+                )
 
             if ubicadas:
                 fig, largo_f, efic_f = dibujar_plano(ubicadas, ancho_t, area_n)
                 m1, m2, m3 = st.columns(3)
                 m1.metric("Metros Tela", f"{largo_f/100:.2f} m")
                 m2.metric("Aprovechamiento", f"{efic_f:.1f} %")
-                m3.metric("Piezas", f"{len(ubicadas)} uds")
+                m3.metric("Total Piezas", f"{len(ubicadas)} uds")
 
                 b1, b2 = st.columns(2)
                 b1.download_button(
@@ -464,4 +599,9 @@ with col2:
                 )
                 st.pyplot(fig, use_container_width=True)
     else:
-        st.info("Configura tu lote a la izquierda y genera el plano al hilo.")
+        st.info(
+            "👈 **Cómo usar:** Elige la prenda, selecciona **Al Hilo** o "
+            "**Al Través**, marca las piezas exactas que vas a cortar "
+            "(cuello, mangas, delantero, espalda, bolsillos, etc.) y agrégalas "
+            "al lote. Puedes mezclar prendas al hilo y al través en un mismo plano."
+        )
