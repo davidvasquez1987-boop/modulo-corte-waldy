@@ -1,6 +1,6 @@
 import streamlit as st
 import ezdxf
-import fitz  # PyMuPDF
+import fitz
 import numpy as np
 from shapely.geometry import Polygon
 from shapely.affinity import translate
@@ -10,13 +10,12 @@ from PIL import Image
 import io
 import os
 
-# --- PALETA CORPORATIVA WALDY UNIFORMES ---
-COLOR_NARANJA_WALDY = "#E9531E"
-COLOR_VERDE_WALDY = "#138A36"
-COLOR_FONDO_SUAVE = "#F4F6F5"
-COLOR_OSCURO = "#1E293B"
+NARANJA = "#E9531E"
+VERDE = "#138A36"
+FONDO = "#F4F6F5"
+OSCURO = "#1E293B"
 
-COLORES_PIEZAS = {
+COLORES = {
     "Espalda": {"fill": "#E9531E", "edge": "#9A3412"},
     "Delantero": {"fill": "#138A36", "edge": "#064E3B"},
     "Manga": {"fill": "#F59E0B", "edge": "#92400E"},
@@ -26,154 +25,443 @@ COLORES_PIEZAS = {
 }
 
 st.set_page_config(
-    page_title="Módulo de Corte CAD/CAM | Waldy Uniformes",
+    page_title="Módulo de Corte | Waldy Uniformes",
     page_icon="✂️",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    layout="wide"
 )
 
-css_estilos = (
+st.markdown(
     "<style>"
-    f".main {{ background-color: {COLOR_FONDO_SUAVE}; }}"
-    f".stButton>button {{ background-color: {COLOR_NARANJA_WALDY}; color: white; font-weight: bold; border-radius: 8px; border: none; padding: 0.55rem 1.1rem; font-size: 15px; }}"
-    f".stButton>button:hover {{ background-color: {COLOR_VERDE_WALDY}; color: white; }}"
-    f".header-box {{ background-color: white; padding: 1.2rem 1.8rem; border-radius: 12px; border-left: 8px solid {COLOR_NARANJA_WALDY}; border-bottom: 3px solid {COLOR_VERDE_WALDY}; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 1.2rem; }}"
-    "</style>"
+    f".main {{ background-color: {FONDO}; }}"
+    f".stButton>button {{ background-color: {NARANJA}; color: white; "
+    "font-weight: bold; border-radius: 8px; border: none; }}"
+    f".stButton>button:hover {{ background-color: {VERDE}; color: white; }}"
+    "</style>",
+    unsafe_allow_html=True
 )
-st.markdown(css_estilos, unsafe_allow_html=True)
 
 if "orden_corte" not in st.session_state:
     st.session_state.orden_corte = []
-if "reset_counter" not in st.session_state:
-    st.session_state.reset_counter = 0
+if "rc" not in st.session_state:
+    st.session_state.rc = 0
 
-def reiniciar_sistema():
+def reiniciar():
     st.session_state.orden_corte = []
-    st.session_state.reset_counter += 1
+    st.session_state.rc += 1
 
-def obtener_svg_waldy():
-    p1 = f'<svg viewBox="0 0 420 265" xmlns="http://www.w3.org/2000/svg" style="width:100%; max-width:220px; display:block; margin:auto;">'
-    p2 = '<rect width="420" height="265" fill="#F8F9FA" rx="6"/>'
-    p3 = f'<path d="M22,22 C22,12 38,12 38,22 L38,85 C38,95 52,95 52,85 L52,55 C52,45 68,45 68,55 L68,85 C68,95 82,95 82,85 L82,22 C82,12 98,12 98,22 L98,88 C98,112 72,118 60,104 C48,118 22,112 22,88 Z" fill="{COLOR_NARANJA_WALDY}"/>'
-    p4 = f'<path d="M158,42 C130,42 110,60 110,80 C110,100 130,115 158,115 L164,115 L164,42 Z M148,96 C134,96 126,88 126,79 C126,70 134,61 148,61 L148,96 Z" fill="{COLOR_NARANJA_WALDY}"/>'
-    p5 = f'<rect x="176" y="42" width="17" height="73" rx="8" fill="{COLOR_NARANJA_WALDY}"/>'
-    p6 = f'<path d="M254,14 L254,42 L248,42 C220,42 204,58 204,79 C204,100 220,115 248,115 L270,115 L270,14 C270,6 254,6 254,14 Z M254,96 L248,96 C232,96 221,89 221,79 C221,69 232,61 248,61 L254,61 Z" fill="{COLOR_NARANJA_WALDY}"/>'
-    p7 = f'<path d="M282,48 L282,85 C282,106 298,116 320,116 L326,116 L326,48 C326,40 310,40 310,48 L310,96 C302,96 298,91 298,83 L298,48 C298,40 282,40 282,48 Z" fill="{COLOR_NARANJA_WALDY}"/>'
-    p8 = f'<rect x="333" y="42" width="17" height="73" rx="4" fill="{COLOR_NARANJA_WALDY}"/><rect x="333" y="123" width="17" height="22" rx="2" fill="{COLOR_NARANJA_WALDY}"/>'
-    p9 = f'<path d="M324,123 L26,123 C20,123 16,127 16,133 L16,240 C16,246 20,250 26,250 L340,250 C346,250 350,246 350,240 L350,153 L327,153 L327,227 L39,227 L39,146 L324,146 Z" fill="{COLOR_VERDE_WALDY}"/>'
-    p10 = f'<text x="183" y="207" font-family="Arial Narrow, Impact, sans-serif" font-weight="900" font-size="52" fill="{COLOR_NARANJA_WALDY}" text-anchor="middle" letter-spacing="1">UNIFORMES</text></svg>'
-    return p1 + p2 + p3 + p4 + p5 + p6 + p7 + p8 + p9 + p10
+def svg_logo():
+    s = [
+        '<svg viewBox="0 0 420 265" xmlns="http://www.w3.org/2000/svg" ',
+        'style="width:100%;max-width:210px;display:block;margin:auto;">',
+        '<rect width="420" height="265" fill="#F8F9FA" rx="6"/>',
+        f'<path d="M22,22 C22,12 38,12 38,22 L38,85 C38,95 52,95 52,85 ',
+        'L52,55 C52,45 68,45 68,55 L68,85 C68,95 82,95 82,85 L82,22 ',
+        'C82,12 98,12 98,22 L98,88 C98,112 72,118 60,104 ',
+        f'C48,118 22,112 22,88 Z" fill="{NARANJA}"/>',
+        f'<path d="M158,42 C130,42 110,60 110,80 C110,100 130,115 158,115 ',
+        'L164,115 L164,42 Z M148,96 C134,96 126,88 126,79 ',
+        f'C126,70 134,61 148,61 L148,96 Z" fill="{NARANJA}"/>',
+        f'<rect x="176" y="42" width="17" height="73" rx="8" fill="{NARANJA}"/>',
+        f'<path d="M254,14 L254,42 L248,42 C220,42 204,58 204,79 ',
+        'C204,100 220,115 248,115 L270,115 L270,14 C270,6 254,6 254,14 Z ',
+        'M254,96 L248,96 C232,96 221,89 221,79 C221,69 232,61 248,61 ',
+        f'L254,61 Z" fill="{NARANJA}"/>',
+        f'<path d="M282,48 L282,85 C282,106 298,116 320,116 L326,116 ',
+        'L326,48 C326,40 310,40 310,48 L310,96 C302,96 298,91 298,83 ',
+        f'L298,48 C298,40 282,40 282,48 Z" fill="{NARANJA}"/>',
+        f'<rect x="333" y="42" width="17" height="73" rx="4" fill="{NARANJA}"/>',
+        f'<rect x="333" y="123" width="17" height="22" rx="2" fill="{NARANJA}"/>',
+        f'<path d="M324,123 L26,123 C20,123 16,127 16,133 L16,240 ',
+        'C16,246 20,250 26,250 L340,250 C346,250 350,246 350,240 L350,153 ',
+        f'L327,153 L327,227 L39,227 L39,146 L324,146 Z" fill="{VERDE}"/>',
+        '<text x="183" y="207" font-family="Arial Narrow, Impact, sans-serif" ',
+        f'font-weight="900" font-size="52" fill="{NARANJA}" ',
+        'text-anchor="middle" letter-spacing="1">UNIFORMES</text></svg>'
+    ]
+    return "".join(s)
 
-def mostrar_encabezado():
-    with st.container():
-        st.markdown('<div class="header-box">', unsafe_allow_html=True)
-        col_logo, col_titulo, col_reset = st.columns([1.3, 3.7, 1.1], vertical_alignment="center")
+def encabezado():
+    c1, c2, c3 = st.columns([1.3, 3.7, 1.1], vertical_alignment="center")
+    with c1:
+        rutas = [
+            "logo_waldy.jpeg", "logo_waldy.jpg", "logo_waldy.png",
+            "WhatsApp Image 2026-11-08 at 6.57.34 PM.jpeg"
+        ]
+        encontrado = next((r for r in rutas if os.path.exists(r)), None)
+        if encontrado:
+            st.image(Image.open(encontrado), use_container_width=True)
+        else:
+            st.markdown(svg_logo(), unsafe_allow_html=True)
+    with c2:
+        st.markdown(
+            f"<h2 style='color:{OSCURO};margin:0;'>"
+            "Módulo CAD/CAM de Corte Textil - Waldy Uniformes</h2>",
+            unsafe_allow_html=True
+        )
+        st.markdown(
+            f"<p style='color:{VERDE};font-weight:700;margin:0;'>"
+            "Línea Escolar y Empresarial • Tendido Estrictamente al Hilo</p>",
+            unsafe_allow_html=True
+        )
+    with c3:
+        if st.button("🔄 Reiniciar Todo", use_container_width=True):
+            reiniciar()
+            st.rerun()
+    st.markdown("---")
 
-        with col_logo:
-            rutas_posibles = [
-                "logo_waldy.jpeg",
-                "logo_waldy.jpg",
-                "logo_waldy.png",
-                "WhatsApp Image 2026-11-08 at 6.57.34 PM.jpeg"
-            ]
-            logo_encontrado = None
-            for ruta in rutas_posibles:
-                if os.path.exists(ruta):
-                    logo_encontrado = ruta
-                    break
-
-            if logo_encontrado:
-                img = Image.open(logo_encontrado)
-                st.image(img, use_container_width=True)
-            else:
-                st.markdown(obtener_svg_waldy(), unsafe_allow_html=True)
-
-        with col_titulo:
-            st.markdown(f"<h1 style='color:{COLOR_OSCURO}; margin-bottom:0; font-size:26px;'>Módulo CAD/CAM de Patronaje y Corte Textil</h1>", unsafe_allow_html=True)
-            st.markdown(f"<p style='color:{COLOR_VERDE_WALDY}; font-weight:700; font-size:15px; margin-top:4px;'>Línea Escolar y Dotación Empresarial • Tendido Estrictamente al Hilo de Tela (Urdimbre)</p>", unsafe_allow_html=True)
-
-        with col_reset:
-            if st.button("🔄 Reiniciar Todo", use_container_width=True):
-                reiniciar_sistema()
-                st.rerun()
-
-        st.markdown('</div>', unsafe_allow_html=True)
-
-CATALOGO_PRENDAS = {
-    "🏫 Escolar - Camisa / Blusa Colegial": {"base_w": 46, "base_h": 58, "tipo": "superior_manga_larga"},
-    "🏫 Escolar - Camiseta Polo Institucional": {"base_w": 45, "base_h": 56, "tipo": "superior_manga_corta"},
-    "🏫 Escolar - Chaqueta Sudadera": {"base_w": 50, "base_h": 60, "tipo": "chaqueta"},
-    "🏫 Escolar - Pantalón Sudadera": {"base_w": 36, "base_h": 88, "tipo": "pantalon"},
-    "🏫 Escolar - Pantalón Clásico / Diario": {"base_w": 38, "base_h": 92, "tipo": "pantalon"},
-    "🏫 Escolar - Jardinera / Falda Tableada": {"base_w": 44, "base_h": 52, "tipo": "falda"},
-    "🏢 Empresarial - Camisa Oxford Manga Larga": {"base_w": 52, "base_h": 68, "tipo": "superior_manga_larga"},
-    "🏢 Empresarial - Camiseta Polo Piqué": {"base_w": 50, "base_h": 65, "tipo": "superior_manga_corta"},
-    "🏢 Empresarial - Chaqueta Impermeable / Térmica": {"base_w": 56, "base_h": 70, "tipo": "chaqueta"},
-    "🏢 Empresarial - Chaleco Reflectivo / Operativo": {"base_w": 53, "base_h": 63, "tipo": "chaleco"},
-    "🏢 Empresarial - Pantalón Drill / Gabardina": {"base_w": 44, "base_h": 100, "tipo": "pantalon"},
-    "🏢 Empresarial - Overol Enterizo Industrial": {"base_w": 55, "base_h": 145, "tipo": "overol"},
+CATALOGO = {
+    "🏫 Escolar - Camisa / Blusa Colegial": (46, 58, "sup_larga"),
+    "🏫 Escolar - Camiseta Polo Institucional": (45, 56, "sup_corta"),
+    "🏫 Escolar - Chaqueta Sudadera": (50, 60, "chaqueta"),
+    "🏫 Escolar - Pantalón Sudadera": (36, 88, "pantalon"),
+    "🏫 Escolar - Pantalón Clásico / Diario": (38, 92, "pantalon"),
+    "🏫 Escolar - Jardinera / Falda Tableada": (44, 52, "falda"),
+    "🏢 Empresarial - Camisa Oxford Manga Larga": (52, 68, "sup_larga"),
+    "🏢 Empresarial - Camiseta Polo Piqué": (50, 65, "sup_corta"),
+    "🏢 Empresarial - Chaqueta Impermeable": (56, 70, "chaqueta"),
+    "🏢 Empresarial - Chaleco Reflectivo": (53, 63, "chaleco"),
+    "🏢 Empresarial - Pantalón Drill / Gabardina": (44, 100, "pantalon"),
+    "🏢 Empresarial - Overol Enterizo": (55, 145, "overol"),
 }
 
-FACTORES_TALLA = {
-    "6 (Infantil)": 0.72, "8 (Infantil)": 0.78, "10 (Juvenil)": 0.84,
-    "12 (Juvenil)": 0.89, "14 (Juvenil)": 0.94, "16 (Juvenil)": 0.97,
-    "S": 1.00, "M": 1.06, "L": 1.12, "XL": 1.18, "XXL": 1.25
+TALLAS = {
+    "6": 0.72, "8": 0.78, "10": 0.84, "12": 0.89,
+    "14": 0.94, "16": 0.97, "S": 1.00, "M": 1.06,
+    "L": 1.12, "XL": 1.18, "XXL": 1.25
 }
 
-def generar_geometria_al_hilo(prenda_nombre, talla, cantidad):
-    info = CATALOGO_PRENDAS[prenda_nombre]
-    factor = FACTORES_TALLA[talla]
-    w = info["base_w"] * factor
-    h = info["base_h"] * factor
-    tipo = info["tipo"]
-    piezas_orden = []
+def crear_piezas(prenda, talla, cant):
+    bw, bh, tipo = CATALOGO[prenda]
+    f = TALLAS[talla]
+    w, h = bw * f, bh * f
+    res = []
 
-    for idx in range(1, cantidad + 1):
-        etiqueta_base = f"{prenda_nombre.split(' - ')[1]} ({talla}) #{idx}"
+    for _ in range(cant):
+        if tipo in ["sup_larga", "sup_corta", "chaqueta"]:
+            esp = Polygon([
+                (0, 0), (w, 0), (w, h * 0.65), (w * 0.82, h * 0.95),
+                (w * 0.65, h), (w * 0.35, h), (w * 0.18, h * 0.95),
+                (0, h * 0.65)
+            ])
+            res.append({"poly": esp, "cat": "Espalda"})
 
-        if tipo in ["superior_manga_larga", "superior_manga_corta", "chaqueta"]:
-            espalda = Polygon([(0, 0), (w, 0), (w, h * 0.65), (w * 0.85, h * 0.72), (w * 0.82, h * 0.95), (w * 0.65, h), (w * 0.35, h), (w * 0.18, h * 0.95), (w * 0.15, h * 0.72), (0, h * 0.65)])
-            piezas_orden.append({"poly": espalda, "categoria": "Espalda", "nombre": f"Espalda {etiqueta_base}"})
+            for _ in range(2):
+                d = Polygon([
+                    (0, 0), (w * 0.52, 0), (w * 0.52, h * 0.86),
+                    (w * 0.35, h * 0.98), (0, h * 0.65)
+                ])
+                res.append({"poly": d, "cat": "Delantero"})
 
-            for lado in ["Izq", "Der"]:
-                delantero = Polygon([(0, 0), (w * 0.52, 0), (w * 0.52, h * 0.86), (w * 0.35, h * 0.98), (w * 0.15, h * 0.72), (0, h * 0.65)])
-                piezas_orden.append({"poly": delantero, "categoria": "Delantero", "nombre": f"Delantero {lado} {etiqueta_base}"})
+            lm = h * 0.85 if tipo != "sup_corta" else h * 0.38
+            am = w * 0.44
+            for _ in range(2):
+                m = Polygon([
+                    (am * 0.15, 0), (am * 0.85, 0), (am, lm * 0.75),
+                    (am * 0.5, lm), (0, lm * 0.75)
+                ])
+                res.append({"poly": m, "cat": "Manga"})
 
-            largo_m = h * 0.85 if tipo != "superior_manga_corta" else h * 0.38
-            ancho_m = w * 0.44
-            for m_lado in ["Izq", "Der"]:
-                manga = Polygon([(ancho_m * 0.15, 0), (ancho_m * 0.85, 0), (ancho_m, largo_m * 0.75), (ancho_m * 0.5, largo_m), (0, largo_m * 0.75)])
-                piezas_orden.append({"poly": manga, "categoria": "Manga", "nombre": f"Manga {m_lado} {etiqueta_base}"})
-
-            cuello = Polygon([(0, 0), (7.5, 0), (7.5, w * 0.76), (0, w * 0.76)])
-            piezas_orden.append({"poly": cuello, "categoria": "Cuello / Pretina", "nombre": f"Cuello {etiqueta_base}"})
+            c = Polygon([(0, 0), (7.5, 0), (7.5, w * 0.76), (0, w * 0.76)])
+            res.append({"poly": c, "cat": "Cuello / Pretina"})
 
         elif tipo == "chaleco":
-            espalda = Polygon([(0, 0), (w, 0), (w, h * 0.62), (w * 0.80, h * 0.96), (w * 0.20, h * 0.96), (0, h * 0.62)])
-            piezas_orden.append({"poly": espalda, "categoria": "Espalda", "nombre": f"Espalda {etiqueta_base}"})
-            for lado in ["Izq", "Der"]:
-                delantero = Polygon([(0, 0), (w * 0.5, 0), (w * 0.5, h * 0.65), (w * 0.25, h * 0.96), (0, h * 0.62)])
-                piezas_orden.append({"poly": delantero, "categoria": "Delantero", "nombre": f"Delantero {lado} {etiqueta_base}"})
-            bolsillo = Polygon([(0, 0), (16, 0), (16, 18), (0, 18)])
-            piezas_orden.append({"poly": bolsillo, "categoria": "Bolsillo / Detalle", "nombre": f"Bolsillo {etiqueta_base}"})
+            esp = Polygon([
+                (0, 0), (w, 0), (w, h * 0.62), (w * 0.8, h * 0.96),
+                (w * 0.2, h * 0.96), (0, h * 0.62)
+            ])
+            res.append({"poly": esp, "cat": "Espalda"})
+            for _ in range(2):
+                d = Polygon([
+                    (0, 0), (w * 0.5, 0), (w * 0.5, h * 0.65),
+                    (w * 0.25, h * 0.96), (0, h * 0.62)
+                ])
+                res.append({"poly": d, "cat": "Delantero"})
+            b = Polygon([(0, 0), (16, 0), (16, 18), (0, 18)])
+            res.append({"poly": b, "cat": "Bolsillo / Detalle"})
 
         elif tipo == "pantalon":
-            for pierna in ["Izq", "Der"]:
-                del_p = Polygon([(w * 0.15, 0), (w * 0.65, 0), (w * 0.85, h * 0.72), (w, h * 0.76), (w * 0.92, h), (w * 0.1, h)])
-                tras_p = Polygon([(w * 0.12, 0), (w * 0.72, 0), (w * 0.95, h * 0.70), (w * 1.12, h * 0.75), (w * 0.98, h * 1.03), (w * 0.08, h)])
-                piezas_orden.append({"poly": del_p, "categoria": "Delantero", "nombre": f"Pierna Del {pierna} {etiqueta_base}"})
-                piezas_orden.append({"poly": tras_p, "categoria": "Espalda", "nombre": f"Pierna Tras {pierna} {etiqueta_base}"})
-            pretina = Polygon([(0, 0), (9.0, 0), (9.0, w * 2.0), (0, w * 2.0)])
-            piezas_orden.append({"poly": pretina, "categoria": "Cuello / Pretina", "nombre": f"Pretina {etiqueta_base}"})
+            for _ in range(2):
+                dp = Polygon([
+                    (w * 0.15, 0), (w * 0.65, 0), (w * 0.85, h * 0.72),
+                    (w, h * 0.76), (w * 0.92, h), (w * 0.1, h)
+                ])
+                tp = Polygon([
+                    (w * 0.12, 0), (w * 0.72, 0), (w * 0.95, h * 0.70),
+                    (w * 1.12, h * 0.75), (w * 0.98, h * 1.03), (w * 0.08, h)
+                ])
+                res.append({"poly": dp, "cat": "Delantero"})
+                res.append({"poly": tp, "cat": "Espalda"})
+            pr = Polygon([(0, 0), (9.0, 0), (9.0, w * 2.0), (0, w * 2.0)])
+            res.append({"poly": pr, "cat": "Cuello / Pretina"})
 
         elif tipo == "falda":
-            pano_del = Polygon([(0, 0), (w * 1.35, 0), (w * 1.15, h), (w * 0.2, h)])
-            pano_tras = Polygon([(0, 0), (w * 1.35, 0), (w * 1.15, h), (w * 0.2, h)])
-            pretina = Polygon([(0, 0), (8.5, 0), (8.5, w * 1.85), (0, w * 1.85)])
-            piezas_orden.append({"poly": pano_del, "categoria": "Delantero", "nombre": f"Paño Del {etiqueta_base}"})
-            piezas_orden.append({"poly": pano_tras, "categoria": "Espalda", "nombre": f"Paño Tras {etiqueta_base}"})
-            piezas_orden.append({"poly": pretina, "categoria": "Cuello / Pretina", "nombre": f"Pretina {etiqueta_base}"})
+            for cat in ["Delantero", "Espalda"]:
+                pa = Polygon([
+                    (0, 0), (w * 1.35, 0), (w * 1.15, h), (w * 0.2, h)
+                ])
+                res.append({"poly": pa, "cat": cat})
+            pr = Polygon([(0, 0), (8.5, 0), (8.5, w * 1.85), (0, w * 1.85)])
+            res.append({"poly": pr, "cat": "Cuello / Pretina"})
 
         elif tipo == "overol":
-            for lado in ["Izq", "Der"]:
-                cuerpo_del = Polygon([(w * 0.1, 0), (w * 0.55, 0), (w * 0.65, h * 0.48),
+            for _ in range(2):
+                cd = Polygon([
+                    (w * 0.1, 0), (w * 0.55, 0), (w * 0.65, h * 0.48),
+                    (w * 0.65, h * 0.90), (w * 0.4, h), (0, h * 0.75)
+                ])
+                ct = Polygon([
+                    (w * 0.1, 0), (w * 0.60, 0), (w * 0.72, h * 0.48),
+                    (w * 0.68, h * 0.96), (w * 0.35, h), (0, h * 0.78)
+                ])
+                mg = Polygon([
+                    (w * 0.08, 0), (w * 0.42, 0), (w * 0.48, h * 0.32),
+                    (w * 0.24, h * 0.42), (0, h * 0.32)
+                ])
+                res.append({"poly": cd, "cat": "Delantero"})
+                res.append({"poly": ct, "cat": "Espalda"})
+                res.append({"poly": mg, "cat": "Manga"})
+    return res
+
+def leer_pdf(archivo):
+    res = []
+    doc = fitz.open(stream=archivo.read(), filetype="pdf")
+    for pag in doc:
+        pts = []
+        for path in pag.get_drawings():
+            for it in path.get("items", []):
+                if it[0] == 'l':
+                    pts.extend([(it[1].x, it[1].y), (it[2].x, it[2].y)])
+                elif it[0] == 'c':
+                    pts.extend([(it[1].x, it[1].y), (it[3].x, it[3].y)])
+                elif it[0] == 're':
+                    r = it[1]
+                    pts.extend([
+                        (r.x0, r.y0), (r.x1, r.y0),
+                        (r.x1, r.y1), (r.x0, r.y1)
+                    ])
+        if len(pts) > 4:
+            cm = [(round(p[0] / 28.35, 1), round(p[1] / 28.35, 1)) for p in pts]
+            unicos = list(dict.fromkeys(cm))
+            if len(unicos) > 3:
+                try:
+                    poly = Polygon(unicos).simplify(0.4, preserve_topology=True)
+                    if poly.is_valid and not poly.is_empty and poly.area > 5:
+                        res.append({"poly": poly, "cat": "Molde PDF"})
+                except Exception:
+                    pass
+    return res
+
+def anidar_al_hilo(piezas, ancho_util, margen, paso):
+    proc = []
+    area_neta = 0.0
+    descartadas = 0
+    for it in piezas:
+        pm = it["poly"].buffer(margen, join_style=2)
+        minx, miny, maxx, maxy = pm.bounds
+        if (maxx - minx) > ancho_util:
+            descartadas += 1
+            continue
+        area_neta += pm.area
+        proc.append({"poly": pm, "cat": it["cat"], "area": pm.area})
+
+    proc.sort(key=lambda x: x["area"], reverse=True)
+    ubicadas = []
+    barra = st.progress(0)
+    tot = len(proc)
+
+    for i, it in enumerate(proc):
+        pb = it["poly"]
+        minx, miny, maxx, maxy = pb.bounds
+        ap = maxx - minx
+        pn = translate(pb, xoff=-minx, yoff=-miny)
+        y = 0.0
+        ok = False
+        while not ok:
+            x = 0.0
+            while x + ap <= ancho_util:
+                cand = translate(pn, xoff=x, yoff=y)
+                if not any(cand.intersects(u["poly"]) for u in ubicadas):
+                    ubicadas.append({"poly": cand, "cat": it["cat"]})
+                    ok = True
+                    break
+                x += paso
+            y += paso
+        barra.progress((i + 1) / tot)
+    barra.empty()
+    return ubicadas, area_neta, descartadas
+
+def dibujar_plano(ubicadas, ancho_util, area_neta):
+    largo = max((u["poly"].bounds[3] for u in ubicadas), default=10.0)
+    prop = max(6.5, min(18.0, (largo / ancho_util) * 8.0))
+    fig, ax = plt.subplots(figsize=(10, prop), dpi=150)
+
+    ax.add_patch(plt.Rectangle(
+        (0, 0), ancho_util, largo + 5, fill=True,
+        facecolor='#F1F5F9', edgecolor=OSCURO, linewidth=2, linestyle='--'
+    ))
+    ax.annotate(
+        '', xy=(-2.5, largo), xytext=(-2.5, 0),
+        arrowprops=dict(arrowstyle="<->", color=NARANJA, lw=2)
+    )
+    ax.text(
+        -3.8, largo / 2, "SENTIDO DEL HILO DE LA TELA (URDIMBRE)",
+        rotation=90, va='center', ha='center', fontsize=8,
+        fontweight='bold', color=NARANJA
+    )
+    ax.grid(True, color='#CBD5E1', linestyle=':', linewidth=0.7)
+
+    cats = set()
+    for it in ubicadas:
+        poly = it["poly"]
+        cat = it["cat"]
+        cats.add(cat)
+        est = COLORES.get(cat, COLORES["Bolsillo / Detalle"])
+        x, y = poly.exterior.xy
+        ax.fill(x, y, facecolor=est["fill"], alpha=0.82,
+                edgecolor=est["edge"], linewidth=1.3, zorder=3)
+
+        cx, cy = poly.centroid.x, poly.centroid.y
+        minx, miny, maxx, maxy = poly.bounds
+        ap, lp = maxx - minx, maxy - miny
+        if ap > 7 and lp > 12:
+            fl = min(lp * 0.25, 10)
+            ax.annotate(
+                '', xy=(cx, cy + fl), xytext=(cx, cy - fl),
+                arrowprops=dict(arrowstyle="<->", color='white', lw=0.9),
+                zorder=4
+            )
+        if ap > 13:
+            ax.text(
+                cx + 1.5, cy, f"{cat[:4].upper()}\n{ap:.0f}x{lp:.0f}",
+                fontsize=6.5, fontweight='bold', color='white',
+                ha='left', va='center', zorder=5
+            )
+
+    parches = [
+        mpatches.Patch(color=COLORES[c]["fill"], label=c)
+        for c in COLORES if c in cats
+    ]
+    ax.legend(handles=parches, loc='upper center',
+              bbox_to_anchor=(0.5, -0.05), ncol=3, fontsize=9)
+
+    efic = (area_neta / (ancho_util * largo) * 100) if largo > 0 else 0
+    ax.set_title(
+        f"PLANO DE CORTE AL HILO - WALDY UNIFORMES\n"
+        f"Ancho: {ancho_util:.1f} cm | Largo: {largo/100:.2f} m | "
+        f"Aprovechamiento: {efic:.1f}%",
+        fontsize=11, fontweight='bold', color=OSCURO
+    )
+    ax.set_xlabel("Ancho Tela (cm)")
+    ax.set_ylabel("Largo al Hilo (cm)")
+    ax.set_xlim(-6, ancho_util + 5)
+    ax.set_ylim(-5, largo + 8)
+    ax.set_aspect('equal')
+    plt.tight_layout()
+    return fig, largo, efic
+
+def a_pdf(fig):
+    buf = io.BytesIO()
+    fig.savefig(buf, format="pdf", bbox_inches="tight")
+    buf.seek(0)
+    return buf.getvalue()
+
+def a_dxf(ubicadas, ancho, largo):
+    doc = ezdxf.new('R2010')
+    msp = doc.modelspace()
+    msp.add_lwpolyline(
+        [(0, 0), (ancho, 0), (ancho, largo), (0, largo)], close=True
+    )
+    for it in ubicadas:
+        msp.add_lwpolyline(list(it["poly"].exterior.coords), close=True)
+    stream = io.StringIO()
+    doc.write(stream)
+    return stream.getvalue().encode('utf-8')
+
+encabezado()
+rc = st.session_state.rc
+col1, col2 = st.columns([1.15, 2.1], gap="large")
+
+with col1:
+    st.subheader("1. Orden de Corte")
+    t1, t2 = st.tabs(["👕 Catálogo Waldy", "📄 Molde PDF"])
+
+    with t1:
+        pr = st.selectbox("Prenda:", list(CATALOGO.keys()), key=f"p_{rc}")
+        ca, cb = st.columns(2)
+        ta = ca.selectbox("Talla:", list(TALLAS.keys()), index=6, key=f"t_{rc}")
+        cn = cb.number_input("Cantidad:", 1, 200, 4, key=f"c_{rc}")
+        if st.button("➕ Agregar Prenda", use_container_width=True):
+            st.session_state.orden_corte.append(
+                {"tipo": "cat", "pr": pr, "ta": ta, "cn": cn}
+            )
+
+    with t2:
+        pdf_up = st.file_uploader("Subir PDF:", type=["pdf"], key=f"f_{rc}")
+        cn_pdf = st.number_input("Copias PDF:", 1, 100, 1, key=f"cp_{rc}")
+        if st.button("➕ Agregar PDF", use_container_width=True) and pdf_up:
+            st.session_state.orden_corte.append(
+                {"tipo": "pdf", "arch": pdf_up, "nom": pdf_up.name, "cn": cn_pdf}
+            )
+
+    if st.session_state.orden_corte:
+        st.markdown("**Lote en Mesa:**")
+        for i, it in enumerate(st.session_state.orden_corte):
+            txt = (
+                f"{it['cn']}x {it['pr'].split(' - ')[1]} ({it['ta']})"
+                if it["tipo"] == "cat" else f"{it['cn']}x PDF: {it['nom']}"
+            )
+            x1, x2 = st.columns([4, 1])
+            x1.write(txt)
+            if x2.button("🗑️", key=f"d_{rc}_{i}"):
+                st.session_state.orden_corte.pop(i)
+                st.rerun()
+
+    st.subheader("2. Parámetros de Tela")
+    ancho_t = st.number_input("Ancho útil (cm):", 60.0, 300.0, 150.0, key=f"a_{rc}")
+    cm1, cm2 = st.columns(2)
+    margen_t = cm1.number_input("Margen (cm):", 0.0, 3.0, 0.8, key=f"m_{rc}")
+    paso_t = cm2.selectbox("Precisión:", [1.0, 2.0, 3.0], index=1, key=f"s_{rc}")
+    st.info("🧵 Corte 100 % al hilo de la tela (0°).")
+    calc = st.button("🚀 GENERAR PLANO DE CORTE", use_container_width=True)
+
+with col2:
+    st.subheader("3. Plano de Corte y Descarga")
+    if calc:
+        if not st.session_state.orden_corte:
+            st.warning("Agrega al menos una prenda o PDF.")
+        else:
+            piezas = []
+            for it in st.session_state.orden_corte:
+                if it["tipo"] == "cat":
+                    piezas.extend(crear_piezas(it["pr"], it["ta"], it["cn"]))
+                else:
+                    it["arch"].seek(0)
+                    piezas.extend(leer_pdf(it["arch"]) * it["cn"])
+
+            ubicadas, area_n, desc = anidar_al_hilo(
+                piezas, ancho_t, margen_t, paso_t
+            )
+            if desc > 0:
+                st.error(f"{desc} pieza(s) superan el ancho de {ancho_t} cm.")
+
+            if ubicadas:
+                fig, largo_f, efic_f = dibujar_plano(ubicadas, ancho_t, area_n)
+                m1, m2, m3 = st.columns(3)
+                m1.metric("Metros Tela", f"{largo_f/100:.2f} m")
+                m2.metric("Aprovechamiento", f"{efic_f:.1f} %")
+                m3.metric("Piezas", f"{len(ubicadas)} uds")
+
+                b1, b2 = st.columns(2)
+                b1.download_button(
+                    "📥 Descargar PDF", a_pdf(fig),
+                    "Plano_Waldy.pdf", "application/pdf",
+                    use_container_width=True
+                )
+                b2.download_button(
+                    "📐 Descargar DXF", a_dxf(ubicadas, ancho_t, largo_f),
+                    "Trazo_Waldy.dxf", "application/dxf",
+                    use_container_width=True
+                )
+                st.pyplot(fig, use_container_width=True)
+    else:
+        st.info("Configura tu lote a la izquierda y genera el plano al hilo.")
