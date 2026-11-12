@@ -555,10 +555,15 @@ with col1:
             if not pz_elegidas:
                 st.warning("Marca al menos una pieza.")
             else:
-                st.session_state.orden_corte.append({
-                    "tipo": "cat", "pr": pr, "ta": ta, "cn": cn,
-                    "piezas": pz_elegidas, "sentido": sentido_pr
-                })
+                nuevo_item = {
+                    "tipo": "cat",
+                    "pr": pr,
+                    "ta": ta,
+                    "cn": cn,
+                    "piezas": pz_elegidas,
+                    "sentido": sentido_pr
+                }
+                st.session_state.orden_corte.append(nuevo_item)
                 st.toast(f"Agregado ({sentido_pr})", icon="✅")
 
     with t2:
@@ -578,11 +583,14 @@ with col1:
             "➕ Agregar PDF", use_container_width=True
         )
         if btn_pdf and pdf_up:
-            st.session_state.orden_corte.append({
-                "tipo": "pdf", "arch": pdf_up,
-                "nom": pdf_up.name, "cn": cn_pdf,
+            nuevo_pdf = {
+                "tipo": "pdf",
+                "arch": pdf_up,
+                "nom": pdf_up.name,
+                "cn": cn_pdf,
                 "sentido": sentido_pdf
-            })
+            }
+            st.session_state.orden_corte.append(nuevo_pdf)
 
     if st.session_state.orden_corte:
         st.markdown("---")
@@ -603,4 +611,80 @@ with col1:
             x1, x2 = st.columns([4.5, 1])
             x1.markdown(txt)
             if x2.button("🗑️", key=f"d_{rc}_{i}"):
-                st.session_state.
+                st.session_state.orden_corte.pop(i)
+                st.rerun()
+
+    st.markdown("---")
+    st.subheader("2. Parámetros de Tela")
+    ancho_t = st.number_input(
+        "Ancho útil (cm):", 60.0, 300.0, 150.0, key=f"a_{rc}"
+    )
+    cm1, cm2 = st.columns(2)
+    margen_t = cm1.number_input(
+        "Margen (cm):", 0.0, 3.0, 0.8, key=f"m_{rc}"
+    )
+    paso_t = cm2.selectbox(
+        "Precisión:", [1.0, 2.0, 3.0], index=1, key=f"s_{rc}"
+    )
+    calc = st.button(
+        "🚀 GENERAR PLANO DE CORTE", use_container_width=True
+    )
+
+with col2:
+    st.subheader("3. Plano de Corte y Descarga")
+    if calc:
+        if not st.session_state.orden_corte:
+            st.warning("Agrega al menos una prenda o PDF.")
+        else:
+            piezas = []
+            for it in st.session_state.orden_corte:
+                if it["tipo"] == "cat":
+                    piezas.extend(crear_piezas(
+                        it["pr"], it["ta"], it["cn"],
+                        it["piezas"], it["sentido"]
+                    ))
+                else:
+                    it["arch"].seek(0)
+                    piezas.extend(
+                        leer_pdf(it["arch"], it["sentido"]) * it["cn"]
+                    )
+
+            ubicadas, area_n, desc = anidar_piezas(
+                piezas, ancho_t, margen_t, paso_t
+            )
+            if desc > 0:
+                st.error(
+                    f"⚠️ {desc} pieza(s) superan el ancho de "
+                    f"{ancho_t} cm en esa dirección."
+                )
+
+            if ubicadas:
+                fig, largo_f, efic_f = dibujar_plano(
+                    ubicadas, ancho_t, area_n
+                )
+                m1, m2, m3 = st.columns(3)
+                m1.metric("Metros Tela", f"{largo_f/100:.2f} m")
+                m2.metric("Aprovechamiento", f"{efic_f:.1f} %")
+                m3.metric("Total Piezas", f"{len(ubicadas)} uds")
+
+                b1, b2 = st.columns(2)
+                b1.download_button(
+                    "📥 Descargar PDF", a_pdf(fig),
+                    "Plano_Waldy.pdf", "application/pdf",
+                    use_container_width=True
+                )
+                b2.download_button(
+                    "📐 Descargar DXF",
+                    a_dxf(ubicadas, ancho_t, largo_f),
+                    "Trazo_Waldy.dxf", "application/dxf",
+                    use_container_width=True
+                )
+                st.pyplot(fig, use_container_width=True)
+    else:
+        guia = (
+            "👈 **Cómo usar:** Elige la prenda, selecciona **Al Hilo** "
+            "o **Al Través**, marca las piezas exactas que vas a cortar "
+            "(cuello, mangas, delantero, espalda, bolsillos, etc.) "
+            "y agrégalas al lote."
+        )
+        st.info(guia)
